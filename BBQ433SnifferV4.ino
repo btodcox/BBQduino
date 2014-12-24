@@ -1,9 +1,9 @@
-/*      Last edit: Dec 23, 2014
+/*      Last edit: Dec 24, 2014
  *
  * BBQduino Maverick 732 BBQ Wireless Thermometer Sniffer v0.1x
  *     Also verified to work properly with Ivation Model #IVAWLTHERM BBQ Thermometer
  *
- *    (c) 2014 B. Tod Cox
+ *    (c) 2014 B. Tod Cox, John Cox
  *
  * BBQduino is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -56,7 +56,7 @@
 //interface pins for LED panels
 #define DATA A1
 #define WR   A2
-#define CS1  A3 //needs to be rewworked from D4 for rev A PCB
+#define CS1  A3 //needs to be reworked from D4 for rev A PCB
 //#define CS2  5
 //#define CS3  6
 //#define CS4  7
@@ -75,7 +75,7 @@ char HTTP_req[REQ_BUF_SZ] = {
 char req_index = 0;              // index into HTTP_req buffer
 
 
-HT1632LEDMatrix matrix = HT1632LEDMatrix(DATA, WR, CS1, CS2);
+HT1632LEDMatrix matrix = HT1632LEDMatrix(DATA, WR, CS1 );
 
 #define INPUT_CAPTURE_IS_RISING_EDGE()    ((TCCR1B & _BV(ICES1)) != 0)
 #define INPUT_CAPTURE_IS_FALLING_EDGE()   ((TCCR1B & _BV(ICES1)) == 0)
@@ -120,7 +120,7 @@ volatile int ste=LOW;
 volatile int new_data=0;
 int pin13led = 13;
 
-uint probe1, probe2;
+uint probe1, probe2, tmp_probe1, tmp_probe2;
 uint32_t check_data;
 uint16_t chksum_data, chksum_sent, chk_xor, chk_xor_expected=0;
 boolean chk_xor_once;
@@ -302,7 +302,14 @@ void setup() {
   delay(1000);
   matrix.clearScreen();
   matrix.setTextColor(1);
-  matrix.setTextSize(1); 
+  matrix.setTextSize(1);
+  
+  matrix.clearBuffer();
+  matrix.setCursor(0,0);
+  matrix.print(F("Sync"));
+  matrix.setCursor(0,8);
+  matrix.print(F("Sndr"));
+  matrix.writeScreen();	 
 
   pinMode(pin13led, OUTPUT);
   digitalWrite(pin13led, HIGH);
@@ -330,7 +337,6 @@ void setup() {
   TIMSK1 = ( _BV(ICIE1) | _BV(TOIE1) );
 
   BBQ_RESET();
-
   Serial.println(F("BTC BBQ Sniffer  v0.14"));
   Serial.println(F("Ready to receive temp data"));
 }
@@ -525,7 +531,7 @@ void loop() {
     (BBQ_packet_process[3] == 0x6A) )  //update transmitter chk_xor_expected--still contains temp info!!!
     )
     {
-      probe2=probe1=0;
+      tmp_probe2=tmp_probe1=0;
 
       // convert temp packet from quaternary encoding
       probe2_array[0]= quart(BBQ_packet_process[8] & 0x0F);
@@ -541,19 +547,19 @@ void loop() {
       probe1_array[4]= quart(BBQ_packet_process[4] >> 4);
 
       for (i=0;i<=4;i++){
-        probe2 += probe2_array[i] * (1<<(2*i));
+        tmp_probe2 += probe2_array[i] * (1<<(2*i));
       }
 
       for (i=0;i<=4;i++){
-        probe1 += probe1_array[i] * (1<<(2*i));
+        tmp_probe1 += probe1_array[i] * (1<<(2*i));
       }
 
       //calc checksum and XOR with sent checksum to see if we got good data from correct transmitter
       //checksum calculation needs nibbles 6-17; see adafruit link for info.
       check_data = (uint32_t) quart(BBQ_packet_process[3] >> 4) << 22;
       check_data |= (uint32_t) quart(BBQ_packet_process[3]  & 0x0F) << 20;
-      check_data |= (uint32_t) probe1 << 10;
-      check_data |= (uint32_t) probe2;
+      check_data |= (uint32_t) tmp_probe1 << 10;
+      check_data |= (uint32_t) tmp_probe2;
 
       chksum_data = calculate_checksum(check_data);
 
@@ -595,8 +601,8 @@ void loop() {
       // and update temps/display if all is good
       if (chk_xor == chk_xor_expected)
       {		
-        probe1-=532; 
-        probe2-=532;
+        probe1 = tmp_probe1-532; 
+        probe2 = tmp_probe2-532;
         //convert to fahrenheit using fast interger math ;-)
         probe1 = (probe1 * 18 + 5)/10 + 32;
         probe2 = (probe2 * 18 + 5)/10 + 32;
@@ -608,17 +614,17 @@ void loop() {
         //update display & we are "done" for now!
         matrix.clearBuffer();
         matrix.setCursor(0,0);
-        matrix.print("F"); 
+        matrix.print("F");
+        if (probe1 < 100) matrix.print(" "); 
         matrix.print(probe1,DEC);
         matrix.setCursor(0,8);
         matrix.print("B");
+        if (probe2 < 100) matrix.print(" ");
         matrix.print(probe2,DEC);
         matrix.writeScreen();	
       }		
     }
-
   }     
-
 } 
 
 
