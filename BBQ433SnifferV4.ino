@@ -34,17 +34,6 @@
  *      Licenses of above works are include by reference.
  */
 
-/*
-  To do:
- 1) add scrolling to display
- a) food/temp
- b) pit/temp
- c) time of cooking
- 3) upload data to phant.io
- 4) update to Rev A version of NCIDdisplay interface board
- 5) store check_xor_expected in eeprom so can survive a power cycle
- */
-
 #include "HT1632n.h" //support files for adafruit HT1632 LED panels
 #include <SPI.h>
 #include <Ethernet.h>
