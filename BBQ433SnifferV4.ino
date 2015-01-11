@@ -298,7 +298,16 @@ void setup() {
   matrix.print(F("Sync"));
   matrix.setCursor(0,8);
   matrix.print(F("Sndr"));
-  matrix.writeScreen();	 
+  matrix.writeScreen();	
+  
+  // read last checksum value out of EEPROM to eliminate need to resync if you reset or powercycle arduino
+  chk_xor_expected = EEPROM.read(0);
+  chk_xor_expected |= EEPROM.read(1) << 8;
+ 
+#ifdef DEBUG
+  Serial.print("Last checksum_xor value: ");
+  Serial.println(chk_xor_expected, HEX);
+#endif
 
   pinMode(pin13led, OUTPUT);
   digitalWrite(pin13led, HIGH);
@@ -326,7 +335,7 @@ void setup() {
   TIMSK1 = ( _BV(ICIE1) | _BV(TOIE1) );
 
   BBQ_RESET();
-  Serial.println(F("BTC BBQ Sniffer  v0.14"));
+  Serial.println(F("BTC BBQ Sniffer  v0.15"));
   Serial.println(F("Ready to receive temp data"));
 }
 
@@ -506,6 +515,8 @@ void loop() {
   webserve();
   if(new_data){
     new_data = 0; //clear the flag that new data is available in BBQ_packet_process array
+        matrix.setPixel(23,0);  //flash led in upper right corner to indicate reception of packet (valid or invalid)
+        matrix.writeScreen();
 #ifdef DEBUG 
     for( i = 0; i < ((BBQ_PACKET_BIT_LENGTH/8)); i++) {
       Serial.print(BBQ_packet_process[i], HEX);
@@ -514,10 +525,10 @@ void loop() {
     Serial.println();
 #endif
     if ( (BBQ_packet_process[0] == 0xAA) && 
-      (BBQ_packet_process[1] == 0x99) &&
-      (BBQ_packet_process[2] == 0x95)  &&
-      ( (BBQ_packet_process[3] == 0x59) || //regular data packet
-    (BBQ_packet_process[3] == 0x6A) )  //update transmitter chk_xor_expected--still contains temp info!!!
+         (BBQ_packet_process[1] == 0x99) &&
+         (BBQ_packet_process[2] == 0x95)  &&
+       ( (BBQ_packet_process[3] == 0x59) || //regular data packet
+         (BBQ_packet_process[3] == 0x6A) )  //update transmitter chk_xor_expected--still contains temp info!!!
     )
     {
       tmp_probe2=tmp_probe1=0;
@@ -569,7 +580,7 @@ void loop() {
       //    b) sync/reset button is pressed on transmitter
       // Maverick wireless BBQ thermometers only allow the receiver to update the
       // transmitter chk_xor ONCE.  any new 6A packets are ignored by receiver until 
-      // receiver is power cylced.
+      // receiver is power cylced or reset.
 
       chk_xor = chksum_data ^ chksum_sent; 
 #ifdef DEBUG                
@@ -582,6 +593,9 @@ void loop() {
       {  
         chk_xor_expected = chk_xor;
         chk_xor_once = true;
+        //store new value in EEPROM so can survive reset or powercycle without resyncing with transmitter
+        EEPROM.write(0, (byte) chk_xor_expected);
+        EEPROM.write(1, ( (byte) (chk_xor_expected >> 8)) );
       }
 
 
@@ -589,29 +603,62 @@ void loop() {
       // if the chk_xor is good for current packet
       // and update temps/display if all is good
       if (chk_xor == chk_xor_expected)
-      {		
-        probe1 = tmp_probe1-532; 
-        probe2 = tmp_probe2-532;
-        //convert to fahrenheit using fast interger math ;-)
-        probe1 = (probe1 * 18 + 5)/10 + 32;
-        probe2 = (probe2 * 18 + 5)/10 + 32;
+      {	
+        chk_xor_once = true;  // could have a valid chk_xor_expected stored in EEPROM, if so, prevent resync without reset/powercyle
+        matrix.setPixel(23,15);  //flash led in lower right corner to indicate reception of valid packet
+        matrix.writeScreen();	
+        if (tmp_probe1 != 0){ //check for unplugged temp probe
+            probe1 = tmp_probe1-532; 
+            probe1 = (probe1 * 18 + 5)/10 + 32; //convert to fahrenheit using fast integer math 
+        } 
+        else
+        {
+          probe1 = 0;  //probe temp of 0 indicates unplugged temp probe on transmitter
+        }
+        if (tmp_probe2 != 0){ //check for unplugged temp probe
+          probe2 = tmp_probe2-532; 
+          probe2 = (probe2 * 18 + 5)/10 + 32; //convert to fahrenheit using fast integer math 
+        } 
+        else
+        {
+          probe2 = 0; //probe temp of 0 indicates unplugged temp probe on transmitter
+        }
+        
         Serial.print("Food: ");
         Serial.println(probe1, DEC);
         Serial.print("Pit : ");
         Serial.println(probe2, DEC);
 
         //update display & we are "done" for now!
-        matrix.clearBuffer();
+        matrix.clearBuffer();  //will also clear led that was set to indicate valid packet received
         matrix.setCursor(0,0);
         matrix.print("F");
-        if (probe1 < 100) matrix.print(" "); 
-        matrix.print(probe1,DEC);
+        if (probe1 == 0) { // no temp probe attached 
+           matrix.print("---"); 
+        } 
+        else //valid temp data
+        {
+          if (probe1 < 100) matrix.print(" "); 
+          matrix.print(probe1,DEC);
+        }
         matrix.setCursor(0,8);
         matrix.print("B");
-        if (probe2 < 100) matrix.print(" ");
-        matrix.print(probe2,DEC);
-        matrix.writeScreen();	
-      }		
+        if (probe2 == 0)
+        {
+          matrix.print("---");
+        }
+        else // valid temp data
+        {
+          if (probe2 < 100) matrix.print(" ");
+          matrix.print(probe2,DEC);
+        }
+        matrix.writeScreen();	//update LED display
+      } else // clear pixel received pixel
+      {
+        matrix.clrPixel(23,0);
+        matrix.writeScreen();
+      }	
+      	
     }
   }     
 } 
