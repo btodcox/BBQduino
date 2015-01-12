@@ -1,4 +1,4 @@
-/*      Last edit: Dec 24, 2014
+/*      Last edit: Jan 11, 2014
  *
  * BBQduino Maverick 732 BBQ Wireless Thermometer Sniffer v0.1x
  *     Also verified to work properly with Ivation Model #IVAWLTHERM BBQ Thermometer
@@ -129,6 +129,11 @@ byte BBQ_packet[(BBQ_PACKET_BIT_LENGTH/8)];
 byte BBQ_packet_process[(BBQ_PACKET_BIT_LENGTH/8)];
 byte probe1_array[6], probe2_array[6]; //only need the 6 nibbles with actual probe temp data
 byte last_BBQ_packet[(BBQ_PACKET_BIT_LENGTH/8)];
+
+// Temporary buffer 
+static char buffer[160];
+int size;
+
 
 /* Overflow interrupt vector */
 ISR(TIMER1_OVF_vect){                 // here if no input pulse detected
@@ -335,7 +340,7 @@ void setup() {
   TIMSK1 = ( _BV(ICIE1) | _BV(TOIE1) );
 
   BBQ_RESET();
-  Serial.println(F("BTC BBQ Sniffer  v0.15"));
+  Serial.println(F("BTC BBQ Sniffer  v0.16"));
   Serial.println(F("Ready to receive temp data"));
 }
 
@@ -428,11 +433,14 @@ void webserve(){
             // send web page
             webFile = SD.open("index.htm");        // open web page file
             if (webFile) {
-              while(webFile.available()) {
-                client.write(webFile.read()); // send web page to client
-              }
-              webFile.close();
+              while ((size = webFile.read(buffer, sizeof(buffer))) > 0) {
+                if (!client.connected()) {
+                  break;
+                }
+                client.write((uint8_t*)buffer, size);
             }
+            webFile.close();
+          }
           }
           // display received HTTP request on serial port
           Serial.println(HTTP_req);
